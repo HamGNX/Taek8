@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+.env
+
+# Virtual env
+.venv/
+.env/
+.dis/
+
+# Local data files
+players.json
+scores.json
+last_matches.json
+nono/
+
+# OS stuff
+.DS_Store
