@@ -14,6 +14,7 @@ players.json
 scores.json
 last_matches.json
 nono/
+audio/
 
 # OS stuff
 .DS_Store

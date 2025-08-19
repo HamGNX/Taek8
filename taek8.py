@@ -8,6 +8,8 @@ import nextcord
 from nextcord.ext import commands, tasks
 from nextcord import Interaction, SlashOption
 from dotenv import load_dotenv
+import random
+from nextcord import FFmpegPCMAudio
 
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -22,6 +24,9 @@ CHECK_INTERVAL = 60  # seconds
 DATA_FILE = "players.json"
 SCORES_FILE = "scores.json"
 LAST_MATCH_FILE = "last_matches.json"
+
+AUDIO_PATH_NAMES = "audio/names"
+AUDIO_FILE_8TH = "audio/8th_place.mp3"
 
 
 # Enable intents (no message content since you're only using slash commands)
@@ -215,6 +220,44 @@ async def bind(
     save_json(DATA_FILE, players)
     await interaction.response.send_message(f"✅ Bound {riot_id} to {member.display_name}.")
 
+async def play_audio_for_8th(discord_id: str):
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        return
+    candidate_channels = []
+    bound_ids = [pdata.get("discord_id") for pdata in players.values() if pdata.get("discord_id")]
+    for vc in guild.voice_channels:
+        members = vc.members
+        bound_members = [m for m in members if str(m.id) in bound_ids]
+        if bound_members:
+            candidate_channels.append((vc, bound_members))
+    if not candidate_channels:
+        print("No eligible voice channels found.")
+        return
+    max_count = max(len(bound) for _, bound in candidate_channels)
+    filtered = [(vc, bound) for vc, bound in candidate_channels if len(bound) == max_count]
+    target_vc = None
+    for vc, bound in filtered:
+        if discord_id not in [str(m.id) for m in bound]:
+            target_vc = vc
+            break
+    if not target_vc:
+        target_vc, _ = random.choice(filtered)
+    try:
+        voice = await target_vc.connect()
+        name_file = os.path.join(AUDIO_PATH_NAMES, f"{discord_id}.mp3")
+        if os.path.exists(name_file):
+            voice.play(FFmpegPCMAudio(name_file))
+            while voice.is_playing():
+                await asyncio.sleep(1)
+        if os.path.exists(AUDIO_FILE_8TH):
+            voice.play(FFmpegPCMAudio(AUDIO_FILE_8TH))
+            while voice.is_playing():
+                await asyncio.sleep(1)
+        await voice.disconnect()
+    except Exception as e:
+        print(f"Error playing audio: {e}")
+
 # -------- Background Loop --------
 @tasks.loop(seconds=CHECK_INTERVAL)
 async def check_matches():
@@ -248,6 +291,8 @@ async def check_matches():
                     else:
                         mention = riot_full
                     await channel.send(f"🤡 {mention} got 8th place! 🤡")
+                    if discord_id:
+                        await play_audio_for_8th(discord_id)
                 except Exception as e:
                     print(f"Error sending message in channel: {e}")
             last_matches[puuid] = match_id
