@@ -154,6 +154,71 @@ async def get_target_channel():
         print(f"Error fetching channel {TARGET_CHANNEL_ID}: {e}")
         return None
 
+# New async function to choose voice channel
+async def choose_voice_channel(exclude_discord_id):
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        return None
+    channel_user_counts = []
+    for channel in guild.voice_channels:
+        count = 0
+        for member in channel.members:
+            member_id_str = str(member.id)
+            if any(pdata.get("discord_id") == member_id_str for pdata in players.values()):
+                count += 1
+        if count > 0:
+            channel_user_counts.append((channel, count))
+    if not channel_user_counts:
+        return None
+    # Find max count
+    max_count = max(count for _, count in channel_user_counts)
+    # Filter channels with max count
+    candidates = [ch for ch, count in channel_user_counts if count == max_count]
+    # Prefer channels that do not contain exclude_discord_id
+    filtered = []
+    for ch in candidates:
+        if all(str(member.id) != str(exclude_discord_id) for member in ch.members):
+            filtered.append(ch)
+    if filtered:
+        candidates = filtered
+    # If multiple candidates still, choose randomly
+    chosen_channel = random.choice(candidates)
+    return chosen_channel
+
+# New async function to play audio for 8th place
+async def play_audio_for_8th(discord_id):
+    channel = await choose_voice_channel(discord_id)
+    if channel is None:
+        return
+    try:
+        voice_client = await channel.connect()
+    except Exception as e:
+        print(f"Failed to connect to voice channel: {e}")
+        return
+    try:
+        name_audio_path = os.path.join(AUDIO_PATH_NAMES, f"{discord_id}.mp3")
+        def play_audio(path):
+            audio_source = FFmpegPCMAudio(path)
+            voice_client.play(audio_source)
+            while voice_client.is_playing():
+                asyncio.sleep(0.1)
+        # Play name audio if exists
+        if os.path.isfile(name_audio_path):
+            audio_source = FFmpegPCMAudio(name_audio_path)
+            voice_client.play(audio_source)
+            while voice_client.is_playing():
+                await asyncio.sleep(0.1)
+        # Play 8th place audio
+        if os.path.isfile(AUDIO_FILE_8TH):
+            audio_source = FFmpegPCMAudio(AUDIO_FILE_8TH)
+            voice_client.play(audio_source)
+            while voice_client.is_playing():
+                await asyncio.sleep(0.1)
+    except Exception as e:
+        print(f"Error during audio playback: {e}")
+    finally:
+        await voice_client.disconnect()
+
 # -------- Slash Command Group --------
 @bot.slash_command(name="t8", description="Tæk8 scoreboard commands", guild_ids=[GUILD_ID])  # Use GUILD_ID from env
 async def t8(interaction: Interaction):
@@ -220,43 +285,37 @@ async def bind(
     save_json(DATA_FILE, players)
     await interaction.response.send_message(f"✅ Bound {riot_id} to {member.display_name}.")
 
-async def play_audio_for_8th(discord_id: str):
-    guild = bot.get_guild(GUILD_ID)
-    if not guild:
+
+
+@bot.slash_command(name="testvoice", description="Test audio playback for a user", guild_ids=[GUILD_ID])
+async def testvoice(interaction: Interaction, member: nextcord.Member):
+    discord_id = str(member.id)
+    if not member.voice or not member.voice.channel:
+        await interaction.response.send_message("❌ That user is not in a voice channel.")
         return
-    candidate_channels = []
-    bound_ids = [pdata.get("discord_id") for pdata in players.values() if pdata.get("discord_id")]
-    for vc in guild.voice_channels:
-        members = vc.members
-        bound_members = [m for m in members if str(m.id) in bound_ids]
-        if bound_members:
-            candidate_channels.append((vc, bound_members))
-    if not candidate_channels:
-        print("No eligible voice channels found.")
-        return
-    max_count = max(len(bound) for _, bound in candidate_channels)
-    filtered = [(vc, bound) for vc, bound in candidate_channels if len(bound) == max_count]
-    target_vc = None
-    for vc, bound in filtered:
-        if discord_id not in [str(m.id) for m in bound]:
-            target_vc = vc
-            break
-    if not target_vc:
-        target_vc, _ = random.choice(filtered)
+
+    channel = member.voice.channel
+    voice_client = await channel.connect()
+    await interaction.response.send_message(f"✅ Connected to {channel.name}")
+
     try:
-        voice = await target_vc.connect()
-        name_file = os.path.join(AUDIO_PATH_NAMES, f"{discord_id}.mp3")
-        if os.path.exists(name_file):
-            voice.play(FFmpegPCMAudio(name_file))
-            while voice.is_playing():
-                await asyncio.sleep(1)
-        if os.path.exists(AUDIO_FILE_8TH):
-            voice.play(FFmpegPCMAudio(AUDIO_FILE_8TH))
-            while voice.is_playing():
-                await asyncio.sleep(1)
-        await voice.disconnect()
+        files_to_play = [
+            os.path.join(AUDIO_PATH_NAMES, f"{discord_id}.mp3"),
+            AUDIO_FILE_8TH
+        ]
+        for file_path in files_to_play:
+            if os.path.isfile(file_path):
+                audio_source = FFmpegPCMAudio(file_path)
+                voice_client.play(audio_source)
+                while voice_client.is_playing():
+                    await asyncio.sleep(0.5)
+            else:
+                await interaction.followup.send(f"⚠️ Missing file: {file_path}")
     except Exception as e:
-        print(f"Error playing audio: {e}")
+        await interaction.followup.send(f"Error during playback: {e}")
+    finally:
+        await voice_client.disconnect()
+        await interaction.followup.send("👋 Disconnected after test playback.")
 
 # -------- Background Loop --------
 @tasks.loop(seconds=CHECK_INTERVAL)
