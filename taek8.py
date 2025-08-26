@@ -252,7 +252,13 @@ async def add(interaction: Interaction, riot_id: str = SlashOption(description="
 async def leaderboard(interaction: Interaction):
     await interaction.response.defer()
     msg = format_scoreboard()
-    await interaction.followup.send(msg)
+    embed = nextcord.Embed(
+        title="📊 TFT 8th Place Scoreboard",
+        description=msg,
+        color=nextcord.Color.fuchsia()
+    )
+    embed.set_footer(text="Tæk8 Score Tracker")
+    await interaction.followup.send(embed=embed)
 
 @t8.subcommand(description="Show your stats")
 async def me(interaction: Interaction):
@@ -269,7 +275,12 @@ async def me(interaction: Interaction):
         daily = scores.get("daily", {}).get(today, {}).get(riot_full, 0)
         all_time = scores.get("all_time", {}).get(riot_full, 0)
         msg_lines.append(f"📊 **{interaction.user.display_name} ({riot_full})**\nDaily 8th: {daily}\nAll-Time 8th: {all_time}")
-    await interaction.response.send_message("\n\n".join(msg_lines))
+    embed = nextcord.Embed(
+        title=f"📊 {interaction.user.display_name}'s Stats",
+        description="\n\n".join(msg_lines),
+        color=nextcord.Color.green()
+    )
+    await interaction.response.send_message(embed=embed)
 
 @t8.subcommand(description="Bind a Riot ID to a Discord member (Admin only)")
 async def bind(
@@ -349,7 +360,13 @@ async def check_matches():
                         mention = f"<@{int(discord_id)}>"
                     else:
                         mention = riot_full
-                    await channel.send(f"🤡 {mention} got 8th place! 🤡")
+                    embed = nextcord.Embed(
+                        title="💀 8th Place Alert!",
+                        description=f"{mention} just finished **8th place** in TFT!",
+                        color=nextcord.Color.red()
+                    )
+                    embed.set_footer(text="Better luck next time...")
+                    await channel.send(embed=embed)
                     if discord_id:
                         await play_audio_for_8th(discord_id)
                 except Exception as e:
@@ -372,7 +389,12 @@ async def daily_reset_checker():
             try:
                 yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
                 final_scoreboard = format_scoreboard_for_date(yesterday)
-                await channel.send("🕛 Daily reset! Final scoreboard before reset:\n" + final_scoreboard)
+                embed = nextcord.Embed(
+                    title="🕛 Daily Reset!",
+                    description="Final scoreboard before reset:\n" + final_scoreboard,
+                    color=nextcord.Color.purple()
+                )
+                await channel.send(embed=embed)
             except Exception as e:
                 print(f"Error sending final scoreboard message: {e}")
         reset_daily_scores()
