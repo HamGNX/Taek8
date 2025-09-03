@@ -33,6 +33,8 @@ AUDIO_FILE_8TH = "audio/8th_place.mp3"
 intents = nextcord.Intents.default()
 intents.message_content = True
 intents.members = True
+# Explicitly enable voice_states intent (needed for reliable voice connections)
+intents.voice_states = True
 bot = commands.Bot(intents=intents)
 
 # -------- Utility functions --------
@@ -305,9 +307,59 @@ async def testvoice(interaction: Interaction, member: nextcord.Member):
         await interaction.response.send_message("❌ That user is not in a voice channel.")
         return
 
+    # Ensure opus is loaded (macOS typical brew install path fallback)
+    try:
+        import nextcord.opus as opus
+        if not opus.is_loaded():
+            # Try common library names / paths
+            tried = []
+            for libname in [
+                "libopus",  # default lookup
+                "opus",
+                "/opt/homebrew/opt/opus/lib/libopus.dylib",
+                "/opt/homebrew/opt/opus/lib/libopus.0.dylib",
+            ]:
+                try:
+                    opus.load_opus(libname)
+                    break
+                except Exception as _e:
+                    tried.append(f"{libname}: {_e}")
+            if not opus.is_loaded():
+                await interaction.response.send_message(
+                    "❌ Opus library not loaded. Install via `brew install opus` and restart bot. Attempts: " + "; ".join(tried)
+                )
+                return
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Failed loading opus: {e}")
+        return
+
     channel = member.voice.channel
-    voice_client = await channel.connect()
-    await interaction.response.send_message(f"✅ Connected to {channel.name}")
+    # Reuse existing connection if already connected somewhere
+    voice_client = nextcord.utils.get(bot.voice_clients, guild=interaction.guild)
+    if voice_client and voice_client.is_connected():
+        if voice_client.channel != channel:
+            try:
+                await voice_client.move_to(channel)
+            except Exception as e:
+                await interaction.response.send_message(f"❌ Failed moving to channel: {e}")
+                return
+    else:
+        try:
+            voice_client = await channel.connect()
+        except IndexError as e:
+            # Likely empty encryption modes list – provide guidance
+            await interaction.response.send_message(
+                "❌ Voice connect failed (encryption modes missing). Ensure intents.voice_states is enabled and opus is installed."
+            )
+            return
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed connecting: {e}")
+            return
+
+    if not interaction.response.is_done():
+        await interaction.response.send_message(f"✅ Connected to {channel.name}")
+    else:
+        await interaction.followup.send(f"✅ Connected to {channel.name}")
 
     try:
         files_to_play = [
@@ -407,5 +459,11 @@ async def on_ready():
         check_matches.start()
     if not daily_reset_checker.is_running():
         daily_reset_checker.start()
+    # Log opus status for debugging
+    try:
+        import nextcord.opus as opus
+        print(f"Opus loaded: {opus.is_loaded()}")
+    except Exception as e:
+        print(f"Opus check failed: {e}")
 
 bot.run(DISCORD_TOKEN)
