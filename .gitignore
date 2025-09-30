@@ -18,3 +18,5 @@ audio/
 
 # OS stuff
 .DS_Store
+
+bot.log
