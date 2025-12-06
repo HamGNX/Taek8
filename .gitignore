@@ -15,6 +15,7 @@ scores.json
 last_matches.json
 nono/
 audio/
+taek8test.py
 
 # OS stuff
 .DS_Store
